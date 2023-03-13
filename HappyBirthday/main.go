@@ -2,24 +2,46 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
+	"context"
+	"log"
+
 	"github.com/twilio/twilio-go"
 	twilioApi "github.com/twilio/twilio-go/rest/api/v2010"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+
+	"github.com/aws/aws-lambda-go/lambda"
 )
 
+// Struct for Birthdays in CSV file
 type Birthdays struct {
-	Date string
-	Name string
-	PhoneNumber string
-	Message string
+	Date		string
+	Name		string
+	PhoneNumber	string
+	Message		string
+}
+
+// Struct for secret key/value pair
+type SecretData struct {
+	AccountSID	string `json:"accountSID"`
+	AuthToken	string `json:"authToken"`
 }
 
 func main() {
+	lambda.Start(sendBirthdayMessage)
+}
+
+
+func sendBirthdayMessage() {
 	// Get today's date
-	today := time.Now()
-	date := fmt.Sprintf("%02d/%02d/%02d", int(today.Month()), today.Day(), today.Year())
+	today	:= time.Now()
+	date	:= fmt.Sprintf("%02d/%02d/%02d", int(today.Month()), today.Day(), today.Year())
 
 	// Open the CSV file
 	file, err := os.Open("birthdays2023.csv")
@@ -63,19 +85,53 @@ func main() {
 		}
 	}
 
-	text := "Happy Birthday " + birthday.Name
-	fmt.Println(text)
+	textMessage := "Happy Birthday " + birthday.Name
 
-	// Grab the phone number and name for the date
 
-	// Send text message
-	// It is recommended to follow best practices for handling secrets in your code, such as storing as environment variables on in a secure configuration.
-	accountSID := "" //"ACXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-	authToken := "" //"YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
-	from := ""
+	// It is recommended to follow best practices for handling secrets in your code,
+	// such as storing as environment variables on in a secure configuration.
+	
+	// Get encrypted API key pairs from Secrets Manager
+	secretName := "test/twilio/birthdayAutomation"
+    region := "us-east-1"
+    
+    config, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Secrets Manager client
+    svc := secretsmanager.NewFromConfig(config)
+
+    input := &secretsmanager.GetSecretValueInput{
+        SecretId:     aws.String(secretName),
+        VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
+    }
+
+    result, err := svc.GetSecretValue(context.TODO(), input)
+    if err != nil {
+        // For a list of exceptions thrown, see
+        // https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+        log.Fatal(err.Error())
+    }
+
+    // Initialize struct for twilio Secret
+    twilioSecret := SecretData{}
+
+    // Decrypt and store into SecretData struct
+    err2 := json.Unmarshal([]byte(*result.SecretString), &twilioSecret)
+    if err2 != nil {
+        // handle error
+    }
+
+    // Store the AccountSID and AuthToken as strings
+    accountSID := twilioSecret.AccountSID
+    authToken := twilioSecret.AuthToken
+
+	from := os.Getenv("TWILIO_FROM_PHONE_NUMBER")
 	to := "+1" + birthday.PhoneNumber
 	client := twilio.NewRestClientWithParams(twilio.ClientParams{
-		Username: accountSid,
+		Username: accountSID,
 		Password: authToken,
 	})
 
@@ -91,7 +147,4 @@ func main() {
 		response, _ := json.Marshal(*resp)
 		fmt.Println("Response: " + string(response))
 	}
-
 }
-
-	// Translate to Lambda
