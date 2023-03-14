@@ -25,19 +25,26 @@ type Birthdays struct {
 	Name		string
 	PhoneNumber	string
 	Message		string
+	Discord		string
 }
 
-// Struct for secret key/value pair
+// Struct for Twilio secret key/value pair
 type SecretData struct {
 	AccountSID	string `json:"accountSID"`
 	AuthToken	string `json:"authToken"`
 }
 
+// Struct for Discord secret key/value pair
+type DiscordSecretData struct {
+    AuthToken string `json:"authToken"`
+}
+
+// Main function
 func main() {
 	lambda.Start(sendBirthdayMessage)
 }
 
-
+// Function for sending Happy Birthday Message
 func sendBirthdayMessage() {
 	// Get today's date
 	today	:= time.Now()
@@ -47,7 +54,7 @@ func sendBirthdayMessage() {
 	file, err := os.Open("birthdays2023.csv")
 	if err != nil {
 		// handle error
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 	defer file.Close()
 
@@ -62,7 +69,7 @@ func sendBirthdayMessage() {
 		row, err := reader.Read()
 		if err != nil {
 			// handle error
-			fmt.Println(err)
+			log.Fatal(err)
 			break
 		}
 
@@ -73,61 +80,94 @@ func sendBirthdayMessage() {
 		}
 		dateCSV := fmt.Sprintf("%02d/%02d/%02d", int(parsedDate.Month()), parsedDate.Day(), parsedDate.Year())
 
-
+		// check the date in CSV for today's date.
 		if dateCSV == date {
 			birthday = Birthdays {
 				Date: row[0],
 				Name: row[1],
 				PhoneNumber: row[2],
 				Message: row[3],
+				Discord: row[4],
 			}
 			break
 		}
 	}
 
-	textMessage := "Happy Birthday " + birthday.Name
+	// Check if birthday.Name is empty
+	if birthday.Name == "" {
+		return
+	}
 
+	// Prepare message
+	var message string
+	if birthday.Message == "" {
+		message = "Happy Birthday " + birthday.Name
+	} else {
+		message = birthday.Message
+	}
 
-	// It is recommended to follow best practices for handling secrets in your code,
-	// such as storing as environment variables on in a secure configuration.
-	
-	// Get encrypted API key pairs from Secrets Manager
-	secretName := "test/twilio/birthdayAutomation"
-    region := "us-east-1"
-    
-    config, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
-    if err != nil {
-        log.Fatal(err)
-    }
+	// Determine if Discord or Twilio message
+	if len(birthday.Discord) > 0 {
+		err := sendDiscord(birthday, message)
+	} else {
+		if err != nil {
+			log.Fatal(err)
+		}
+		err := sendTwilio(birthday, message)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
 
-    // Create Secrets Manager client
-    svc := secretsmanager.NewFromConfig(config)
+// Function to get Secret from AWS Secrets Manager
+func getSecretString(secretName, region string) (string, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(region))
+	if err != nil {
+		return "", err
+	}
 
-    input := &secretsmanager.GetSecretValueInput{
-        SecretId:     aws.String(secretName),
-        VersionStage: aws.String("AWSCURRENT"), // VersionStage defaults to AWSCURRENT if unspecified
-    }
+	// Create Secrets Manager client
+	svc := secretsmanager.NewFromConfig(cfg)
 
-    result, err := svc.GetSecretValue(context.TODO(), input)
-    if err != nil {
-        // For a list of exceptions thrown, see
-        // https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
-        log.Fatal(err.Error())
-    }
+	input := &secretsmanager.GetSecretValueInput{
+		SecretId:	 aws.String(secretName),
+		VersionStage: aws.String("AWSCURRENT"),
+	}
 
-    // Initialize struct for twilio Secret
-    twilioSecret := SecretData{}
+	result, err := svc.GetSecretValue(context.Background(), input)
+	if err != nil {
+		// For a list of exceptions thrown, see
+		// https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html
+		return "", err
+	}
 
-    // Decrypt and store into SecretData struct
-    err2 := json.Unmarshal([]byte(*result.SecretString), &twilioSecret)
-    if err2 != nil {
-        // handle error
-    }
+	// Return secret
+	return *result.SecretString, nil
+}
 
-    // Store the AccountSID and AuthToken as strings
-    accountSID := twilioSecret.AccountSID
-    authToken := twilioSecret.AuthToken
+// Function to send text message using Twilio
+func sendTwilio(birthday Birthdays, textMessage string) error {
+	// Get twilio API key pairs from Secrets Manager
+	twilioSecret := SecretData{}
+	twilioSecretName := "test/twilio/birthdayAutomation"
+	region := "us-east-1"
 
+	twilioSecretString, err := getSecretString(twilioSecretName, region)
+	if err != nil {
+		return err
+	}
+
+	err2 := json.Unmarshal([]byte(twilioSecretString), &twilioSecret)
+	if err2 != nil{
+		return err
+	}
+
+	// Store the AccountSID and AuthToken as strings
+	accountSID := twilioSecret.AccountSID
+	authToken := twilioSecret.AuthToken
+
+	// Set up Twilio client
 	from := os.Getenv("TWILIO_FROM_PHONE_NUMBER")
 	to := "+1" + birthday.PhoneNumber
 	client := twilio.NewRestClientWithParams(twilio.ClientParams{
@@ -135,16 +175,62 @@ func sendBirthdayMessage() {
 		Password: authToken,
 	})
 
+	// Create message params
 	params := &twilioApi.CreateMessageParams{}
 	params.SetTo(to)
 	params.SetFrom(from)
 	params.SetBody(textMessage)
 
+	// Send message
 	resp, err := client.Api.CreateMessage(params)
 	if err != nil {
-		fmt.Println(err.Error())
+		return err
 	} else {
 		response, _ := json.Marshal(*resp)
 		fmt.Println("Response: " + string(response))
 	}
+
+	return nil
+}
+
+// Function to send a specified message to a discord channel
+func sendDiscord(birthday Birthdays, message string) error {
+	url := os.Getenv("DISCORD_FRIENDZONE_CHANNEL")
+	payload := map[string]string{"content": message}
+	jsonPayload, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+
+	// Get authentication token from Secrets Manager
+	discordSecret := DiscordSecretData{}
+	discordSecretName := "test/discord/birthdayAutomation"
+	region := "us-east-1"
+
+	// Pull discord secret
+	discordSecretJSON, err := getSecretString(discordSecretName, region)
+	if err != nil{
+		return err
+	}
+
+	// Unmarshal JSON secret
+	err = json.Unmarshal([]byte(discordSecretJSON), &discordSecret)
+	if err != nil {
+		return err
+	}
+	
+	// Set POST headers
+	req.Header.Set("Authorization", discordSecret.AuthToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("sendDiscord failed with status code: %d", resp.StatusCode)
+	}
+
+	return nil
 }
