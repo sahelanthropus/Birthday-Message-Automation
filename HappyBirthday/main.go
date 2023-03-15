@@ -109,10 +109,10 @@ func sendBirthdayMessage() {
 	// Determine if Discord or Twilio message
 	if len(birthday.Discord) > 0 {
 		err := sendDiscord(birthday, message)
-	} else {
 		if err != nil {
 			log.Fatal(err)
 		}
+	} else {
 		err := sendTwilio(birthday, message)
 		if err != nil {
 			log.Fatal(err)
