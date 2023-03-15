@@ -150,7 +150,7 @@ func getSecretString(secretName, region string) (string, error) {
 func sendTwilio(birthday Birthdays, textMessage string) error {
 	// Get twilio API key pairs from Secrets Manager
 	twilioSecret := SecretData{}
-	twilioSecretName := "test/twilio/birthdayAutomation"
+	twilioSecretName := os.Getenv("TWILIO_SECRET_NAME")
 	region := "us-east-1"
 
 	twilioSecretString, err := getSecretString(twilioSecretName, region)
@@ -202,7 +202,7 @@ func sendDiscord(birthday Birthdays, message string) error {
 
 	// Get authentication token from Secrets Manager
 	discordSecret := DiscordSecretData{}
-	discordSecretName := "test/discord/birthdayAutomation"
+	discordSecretName := os.Getenv("DISCORD_SECRET_NAME")
 	region := "us-east-1"
 
 	// Pull discord secret
