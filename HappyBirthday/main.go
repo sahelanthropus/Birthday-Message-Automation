@@ -103,6 +103,7 @@ func findMatchingBirthday(ctx context.Context, date string, birthdayFile *os.Fil
 	var birthday Birthdays
 
 	// Read the CSV rows
+	var rowCounter int
 	for {
 		row, err := reader.Read()
 		if err != nil {
@@ -111,6 +112,12 @@ func findMatchingBirthday(ctx context.Context, date string, birthdayFile *os.Fil
 				return birthday, fmt.Errorf("failed to read CSV row: %v", err)
 			}
 			break
+		}
+
+		// Skip header row
+		if rowCounter == 0 {
+			rowCounter++
+			continue
 		}
 
 		// Parse the date string in the CSV into a time.Time type
@@ -134,6 +141,7 @@ func findMatchingBirthday(ctx context.Context, date string, birthdayFile *os.Fil
 			}
 			break
 		}
+		rowCounter++
 	}
 	
 	return birthday, nil
@@ -267,7 +275,7 @@ func sendDiscord(ctx context.Context, birthday Birthdays, message string) error 
 	}
 	
 	// Set POST headers
-	req.Header.Set("Authorization", discordSecret.Authorization)
+	req.Header.Set("Authorization", "Bot " + discordSecret.Authorization)
 	req.Header.Set("Content-Type", "application/json")
 	
 	// Send request and check response status
