@@ -19,6 +19,8 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 )
 
+var region = getRegion()
+
 // Struct for Birthdays in CSV file
 type Birthdays struct {
 	Date        string
@@ -52,19 +54,19 @@ Using context due to dealing with external services to avoid long wait times and
 func sendBirthdayMessage(ctx context.Context) error {
 	// Get today's date
 	today := time.Now()
-	date := fmt.Sprintf("%02d/%02d/%02d", int(today.Month()), today.Day(), today.Year())
+	date := today.Format("01/02/2006")
 
 	// Open the CSV file
 	birthdayFile, err := os.Open("birthdays2023.csv")
 	if err != nil {
-		return fmt.Errorf("failed to open birthday file: %v", err)
+		return fmt.Errorf("failed to open birthday file: %w", err)
 	}
 	defer birthdayFile.Close()
 
 	// Read the CSV rows and find a matching birthday
 	birthday, err := findMatchingBirthday(ctx, date, birthdayFile)
 	if err != nil {
-		return fmt.Errorf("failed to find matching birthday: %v", err)
+		return fmt.Errorf("failed to find matching birthday: %w", err)
 	}
 
 	// Check if birthday.Name is empty
@@ -79,12 +81,12 @@ func sendBirthdayMessage(ctx context.Context) error {
 	if len(birthday.Discord) > 0 {
 		err := sendDiscord(ctx, birthday, message)
 		if err != nil {
-			return fmt.Errorf("failed to send Discord message: %v", err)
+			return fmt.Errorf("failed to send Discord message: %w", err)
 		}
 	} else {
 		err := sendTwilio(ctx, birthday, message)
 		if err != nil {
-			return fmt.Errorf("failed to send Twilio message: %v", err)
+			return fmt.Errorf("failed to send Twilio message: %w", err)
 		}
 	}
 
@@ -109,7 +111,7 @@ func findMatchingBirthday(ctx context.Context, date string, birthdayFile *os.Fil
 		if err != nil {
 			if err.Error() != "EOF" {
 				// handle error
-				return birthday, fmt.Errorf("failed to read CSV row: %v", err)
+				return birthday, fmt.Errorf("failed to read CSV row: %w", err)
 			}
 			break
 		}
@@ -124,11 +126,11 @@ func findMatchingBirthday(ctx context.Context, date string, birthdayFile *os.Fil
 		parsedDate, err := time.Parse("1/2/2006", row[0])
 		if err != nil {
 			// handle error - unable to parse date string
-			log.Printf("error parsing date string '%s': %v", row[0], err)
+			log.Printf("failed to parse date string '%s': %w", row[0], err)
 			continue
 		}
 
-		dateCSV := fmt.Sprintf("%02d/%02d/%02d", int(parsedDate.Month()), parsedDate.Day(), parsedDate.Year())
+		dateCSV := parsedDate.Format("01/02/2006")
 	
 		// check the date in CSV for today's date.
 		if dateCSV == date {
@@ -189,13 +191,23 @@ func getSecretString(ctx context.Context, secretName, region string) (string, er
 }
 
 /*
+getRegion sets the region variable to the REGION evironment variable or hard codes the region variable if not found. 
+*/
+func getRegion() string {
+	r := os.Getenv("REGION")
+	if r == "" {
+		r = "us-east-1" // default region
+	}
+	return r
+}
+
+/*
 sendTwilio sends a text message using Twilio given a Birthdays struct and a message.
 */
 func sendTwilio(ctx context.Context, birthday Birthdays, textMessage string) error {
 	// Get twilio API key pairs from Secrets Manager
 	twilioSecret := SecretData{}
 	twilioSecretName := os.Getenv("TWILIO_SECRET_NAME")
-	region := "us-east-1"
 
 	twilioSecretString, err := getSecretString(ctx, twilioSecretName, region)
 	if err != nil {
@@ -231,7 +243,7 @@ func sendTwilio(ctx context.Context, birthday Birthdays, textMessage string) err
 		return err
 	}
 	response, _ := json.Marshal(*resp)
-	fmt.Println("Response: " + string(response))
+	log.Printf("Response: " + string(response))
 	
 	return nil
 }
@@ -248,30 +260,29 @@ func sendDiscord(ctx context.Context, birthday Birthdays, message string) error 
 	payload := map[string]string{"content": message}
 	jsonPayload, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Discord payload: %v", err)
+		return fmt.Errorf("failed to marshal Discord payload: %w", err)
 	}
 	
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonPayload))
 	if err != nil {
-		return fmt.Errorf("failed to create Discord request: %v", err)
+		return fmt.Errorf("failed to create Discord request: %w", err)
 	}
 	
 	// Get authentication token from Secrets Manager
 	discordSecret := DiscordSecretData{}
 	discordSecretName := os.Getenv("DISCORD_SECRET_NAME")
-	region := "us-east-1"
 	
 	// Pull discord secret
 	discordSecretJSON, err := getSecretString(ctx, discordSecretName, region)
 	if err != nil {
-		return fmt.Errorf("failed to get Discord secret: %v", err)
+		return fmt.Errorf("failed to get Discord secret: %w", err)
 	}
 	
 	// Unmarshal secret
 	err = json.Unmarshal([]byte(discordSecretJSON), &discordSecret)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal Discord secret: %v", err)
+		return fmt.Errorf("failed to unmarshal Discord secret: %w", err)
 	}
 	
 	// Set POST headers
@@ -282,7 +293,7 @@ func sendDiscord(ctx context.Context, birthday Birthdays, message string) error 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send Discord request: %v", err)
+		return fmt.Errorf("failed to send Discord request: %w", err)
 	}
 	defer resp.Body.Close()
 	
