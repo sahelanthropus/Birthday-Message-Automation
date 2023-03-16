@@ -57,7 +57,7 @@ func sendBirthdayMessage(ctx context.Context) error {
 	date := today.Format("01/02/2006")
 
 	// Open the CSV file
-	birthdayFile, err := os.Open("birthdays2023.csv")
+	birthdayFile, err := os.Open("birthdays.csv")
 	if err != nil {
 		return fmt.Errorf("failed to open birthday file: %w", err)
 	}
