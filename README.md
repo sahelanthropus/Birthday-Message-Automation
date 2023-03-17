@@ -47,7 +47,7 @@ cd birthday-message-automation
 ```PowerShell
 $env:GOOS = "linux"
 go build -o bootstrap main.go
-~\Go\Bin\build-lambda-zip.exe -o lambda-handler.zip bootstrap birthdays2023.csv
+~\Go\Bin\build-lambda-zip.exe -o lambda-handler.zip bootstrap birthdays.csv
 ```
 4. Create a new Lambda function in the AWS Management Console, and upload the `lambda-handler.zip` file as the function package. Set the runtime to `Go 1.x` and the handler to `bootstrap`.
 
@@ -60,7 +60,7 @@ go build -o bootstrap main.go
    * `TWILIO_PHONE_NUMBER`: The from phone number used with the Twilio API. 
 
 
-6. Create the new secrets in AWS Secrets Manager to store your Twilio and Discord API keys:
+6. Create the new secrets in AWS Secrets Manager to store your Twilio and Discord API keys (Note that after the 30-day free trial for AWS Secrets Manager, AWS charges $0.40 per secret stored in AWS Secrets Manager):
 
    * Secret name (rename if desired): `prod\birthday\twilio`
    * Secret key-value pairs:
