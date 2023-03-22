@@ -47,7 +47,8 @@ cd birthday-message-automation
 ```PowerShell
 $env:GOOS = "linux"
 go build -o bootstrap main.go
-~\Go\Bin\build-lambda-zip.exe -o lambda-handler.zip bootstrap birthdays.csv
+~\Go\Bin\build-lambda-zip.exe -o lambda-handler.zip bootstrap
+Compress-Archive -Path ".\birthdays.csv" -DestinationPath ".\lambda-handler.zip" -Update
 ```
 4. Create a new Lambda function in the AWS Management Console, and upload the `lambda-handler.zip` file as the function package. Set the runtime to `Go 1.x` and the handler to `bootstrap`.
 
